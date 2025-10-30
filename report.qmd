@@ -1,6 +1,7 @@
 ---
 title: "EV Power - Lab 4 Project Report"
 format: typst
+author: Austin Faille
 ---
 
 # Example Solution 1
@@ -8,27 +9,100 @@ format: typst
 ## **Part 0: libraries**
 
 ```{r}
+#| echo: false
+
+library(tidyverse)
+library(sf)
+library(rnaturalearth)
 
 ```
 
 ## **Part 1:** **Defining Research Question**
 
-Chosen Question:
+Chosen Question: Do states with cheaper electricity have faster EV adoption rates?
 
 ## **Part 2: Data Preparation and Cleaning**
 
 ```{r}
+# DATA
+ev_reg <- read_csv("data/ev-registrations-by-state-2023.csv")
+ev_reg
+avg_price <- read_csv("data/av-energy-price-2021-2023.csv")
+avg_price
+states_list <- tibble(
+    Name = state.name,
+    Code = state.abb
+)
+states_list
 
+# CLEANING
+colnames(ev_reg) <- ev_reg[2,]
+ev_reg_2 <- ev_reg |>
+    filter(STATE %in% states_list$Name) |>
+    mutate(Count = as.numeric(str_extract(`Count-EVs`, pattern = "[0-9]+"))) |>
+    select(STATE, Count)
+
+ev_reg_3 <- ev_reg_2 |>
+    left_join(states_list, by = c("STATE" = "Name"))
+
+ev_reg_3
+
+colnames(avg_price) <- c("states")
+avg_price_2 <- avg_price |>
+    separate(states, into = c("State", "2021", "2022", "2023"), sep = ",") |>
+    filter(State %in% states_list$Code) |>
+    select(State, `2023`) |>
+    mutate(`Avg Energy Price` = as.numeric(str_extract(`2023`, pattern = "[0-9]{2}\\.[0-9]{2}"))) |>
+    select(State, `Avg Energy Price`)
+
+print(avg_price_2, n = 50)
 ```
 
 ## **Part 3: Joining / Pivoting Datasets for Analysis**
 
 ```{r}
+full_data <- left_join(ev_reg_3, avg_price_2, by = c("Code" = "State"))
+full_data
 
+states_sf <- ne_states(country = 'United States of America', returnclass = "sf")
+full_data_states <- left_join(states_sf, full_data, by = c("postal" = "Code"))
+full_data_states
+
+full_data |>
+    arrange(desc(`Avg Energy Price`))
+
+centroids <- st_centroid(full_data_states)
 ```
 
 ## **Part 4: Mapping Visualization**
 
-```{r}
+```{r, fig.width=8, fig.height=5}
+full_data_states |>
+    ggplot() +
+    geom_sf(aes(fill = `Avg Energy Price`)) +
+    geom_sf(data = centroids, aes(size = Count), color = "dodgerblue3", alpha = 0.7) +
+    scale_size(range = c(1, 10), name = "EV Registrations") +
+    scale_fill_gradient(low = "green", high = "red", name = "Avg Energy Price") + 
+    coord_sf(xlim = c(-125, -66), ylim = c(24, 50)) +
+    theme_minimal() +
+    labs(title = "Energy Prices & EV Registrations vary widely across the US")
 
 ```
+
+From looking at our map visualization, we see no obvious relationship between the amount of EV Registrations (Blue Circle) and the Average Energy Price in the state. In fact, we see a huge discrepancy from what we would expect in California which has the most EV Registrations and the second highest Average Energy Cost. We also see states like Texas which still have a relatively high amount of EV Registrations but a much lower cost of energy. States like Nevada, Arizona, and some in the New England area have high energy prices but not many EV Registrations.
+
+```{r}
+full_data |>
+    ggplot(aes(
+        x = `Avg Energy Price`,
+        y = Count
+    )) +
+    geom_point() +
+    labs(x = "Average Energy Price",
+        y = "Number of EV Registrations",
+        title = "No relationship between the price of energy and ev registrations") +
+    theme_bw()
+
+```
+
+Taking a look at a scatter plot of Count vs. Average Energy Price, we see no obvious relationship between the two variables. If there is a relationship, it is extremely weak at best. If there were to be a relationship, it would be positive which goes against what we would expect to happen. We would expect that lower energy prices might drive more people to adopt electric vehicles. In conclusion, there is no observable relationship between Average Energy Price and the number of EV Registrations in a State.
